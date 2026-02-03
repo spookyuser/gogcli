@@ -85,7 +85,7 @@ func Authorize(ctx context.Context, opts AuthorizeOptions) (string, error) {
 	defer cancel()
 
 	if opts.Manual {
-		redirectURI := "http://localhost:1"
+		redirectURI := "http://127.0.0.1:9004"
 		cfg := oauth2.Config{
 			ClientID:     creds.ClientID,
 			ClientSecret: creds.ClientSecret,

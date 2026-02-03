@@ -95,7 +95,7 @@ func TestAuthorize_Manual_Success(t *testing.T) {
 		w = pw
 	}
 	os.Stdin = r
-	_, _ = w.WriteString("http://localhost:1/?code=abc&state=state123\n")
+	_, _ = w.WriteString("http://127.0.0.1:9004/?code=abc&state=state123\n")
 	_ = w.Close()
 
 	rt, err := Authorize(context.Background(), AuthorizeOptions{
@@ -146,7 +146,7 @@ func TestAuthorize_Manual_Success_NoNewline(t *testing.T) {
 		w = pw
 	}
 	os.Stdin = r
-	_, _ = w.WriteString("http://localhost:1/?code=abc&state=state123")
+	_, _ = w.WriteString("http://127.0.0.1:9004/?code=abc&state=state123")
 	_ = w.Close()
 
 	rt, err := Authorize(context.Background(), AuthorizeOptions{
@@ -242,7 +242,7 @@ func TestAuthorize_Manual_StateMismatch(t *testing.T) {
 		w = pw
 	}
 	os.Stdin = r
-	_, _ = w.WriteString("http://localhost:1/?code=abc&state=DIFFERENT\n")
+	_, _ = w.WriteString("http://127.0.0.1:9004/?code=abc&state=DIFFERENT\n")
 	_ = w.Close()
 
 	if _, err := Authorize(context.Background(), AuthorizeOptions{
