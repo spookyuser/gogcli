@@ -42,6 +42,10 @@ func parseEnabledCommands(value string) map[string]bool {
 }
 
 func enforceDisabledCommands(kctx *kong.Context, disabled string) error {
+	return enforceDisabledCommandsForCommand(kctx.Command(), disabled)
+}
+
+func enforceDisabledCommandsForCommand(command, disabled string) error {
 	disabled = strings.TrimSpace(disabled)
 	if disabled == "" {
 		return nil
@@ -52,7 +56,7 @@ func enforceDisabledCommands(kctx *kong.Context, disabled string) error {
 		return nil
 	}
 
-	cmdParts := strings.Fields(kctx.Command())
+	cmdParts := strings.Fields(command)
 	if len(cmdParts) == 0 {
 		return nil
 	}

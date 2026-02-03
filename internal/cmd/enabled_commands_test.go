@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"testing"
-
-	"github.com/alecthomas/kong"
 )
 
 func TestParseEnabledCommands(t *testing.T) {
@@ -11,14 +9,6 @@ func TestParseEnabledCommands(t *testing.T) {
 	if !allow["calendar"] || !allow["tasks"] || !allow["gmail"] {
 		t.Fatalf("unexpected allow map: %#v", allow)
 	}
-}
-
-type mockKongContext struct {
-	command string
-}
-
-func (m *mockKongContext) Command() string {
-	return m.command
 }
 
 func TestEnforceDisabledCommands(t *testing.T) {
@@ -122,20 +112,9 @@ func TestEnforceDisabledCommands(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parser, err := kong.New(&struct{}{})
-			if err != nil {
-				t.Fatalf("failed to create parser: %v", err)
-			}
-			kctx, err := parser.Parse([]string{})
-			if err != nil {
-				t.Fatalf("failed to parse: %v", err)
-			}
-			// Override the command for testing
-			kctx.Model.Name = tt.command
-
-			err = enforceDisabledCommands(kctx, tt.disabled)
+			err := enforceDisabledCommandsForCommand(tt.command, tt.disabled)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("enforceDisabledCommands() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("enforceDisabledCommandsForCommand() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
