@@ -24,15 +24,16 @@ const (
 )
 
 type RootFlags struct {
-	Color          string `help:"Color output: auto|always|never" default:"${color}"`
-	Account        string `help:"Account email for API commands (gmail/calendar/chat/classroom/drive/docs/slides/contacts/tasks/people/sheets)"`
-	Client         string `help:"OAuth client name (selects stored credentials + token bucket)" default:"${client}"`
-	EnableCommands string `help:"Comma-separated list of enabled top-level commands (restricts CLI)" default:"${enabled_commands}"`
-	JSON           bool   `help:"Output JSON to stdout (best for scripting)" default:"${json}"`
-	Plain          bool   `help:"Output stable, parseable text to stdout (TSV; no colors)" default:"${plain}"`
-	Force          bool   `help:"Skip confirmations for destructive commands"`
-	NoInput        bool   `help:"Never prompt; fail instead (useful for CI)"`
-	Verbose        bool   `help:"Enable verbose logging"`
+	Color           string `help:"Color output: auto|always|never" default:"${color}"`
+	Account         string `help:"Account email for API commands (gmail/calendar/chat/classroom/drive/docs/slides/contacts/tasks/people/sheets)"`
+	Client          string `help:"OAuth client name (selects stored credentials + token bucket)" default:"${client}"`
+	EnableCommands  string `help:"Comma-separated list of enabled top-level commands (restricts CLI)" default:"${enabled_commands}"`
+	DisableCommands string `help:"Comma-separated list of disabled commands using dot-notation (e.g., gmail.send)" default:"${disabled_commands}"`
+	JSON            bool   `help:"Output JSON to stdout (best for scripting)" default:"${json}"`
+	Plain           bool   `help:"Output stable, parseable text to stdout (TSV; no colors)" default:"${plain}"`
+	Force           bool   `help:"Skip confirmations for destructive commands"`
+	NoInput         bool   `help:"Never prompt; fail instead (useful for CI)"`
+	Verbose         bool   `help:"Enable verbose logging"`
 }
 
 type CLI struct {
@@ -91,6 +92,11 @@ func Execute(args []string) (err error) {
 	}
 
 	if err = enforceEnabledCommands(kctx, cli.EnableCommands); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, errfmt.Format(err))
+		return err
+	}
+
+	if err = enforceDisabledCommands(kctx, cli.DisableCommands); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, errfmt.Format(err))
 		return err
 	}
@@ -171,14 +177,15 @@ func boolString(v bool) string {
 func newParser(description string) (*kong.Kong, *CLI, error) {
 	envMode := outfmt.FromEnv()
 	vars := kong.Vars{
-		"auth_services":    googleauth.UserServiceCSV(),
-		"color":            envOr("GOG_COLOR", "auto"),
-		"calendar_weekday": envOr("GOG_CALENDAR_WEEKDAY", "false"),
-		"client":           envOr("GOG_CLIENT", ""),
-		"enabled_commands": envOr("GOG_ENABLE_COMMANDS", ""),
-		"json":             boolString(envMode.JSON),
-		"plain":            boolString(envMode.Plain),
-		"version":          VersionString(),
+		"auth_services":     googleauth.UserServiceCSV(),
+		"color":             envOr("GOG_COLOR", "auto"),
+		"calendar_weekday":  envOr("GOG_CALENDAR_WEEKDAY", "false"),
+		"client":            envOr("GOG_CLIENT", ""),
+		"enabled_commands":  envOr("GOG_ENABLE_COMMANDS", ""),
+		"disabled_commands": envOr("GOG_DISABLE_COMMANDS", ""),
+		"json":              boolString(envMode.JSON),
+		"plain":             boolString(envMode.Plain),
+		"version":           VersionString(),
 	}
 
 	cli := &CLI{}

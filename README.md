@@ -379,6 +379,7 @@ gog keep get <noteId> --account you@yourdomain.com
 - `GOG_COLOR` - Color mode: `auto` (default), `always`, or `never`
 - `GOG_TIMEZONE` - Default output timezone for Calendar/Gmail (IANA name, `UTC`, or `local`)
 - `GOG_ENABLE_COMMANDS` - Comma-separated allowlist of top-level commands (e.g., `calendar,tasks`)
+- `GOG_DISABLE_COMMANDS` - Comma-separated denylist using dot-notation (e.g., `gmail.send`)
 
 ### Config File (JSON5)
 
@@ -435,7 +436,7 @@ gog auth alias unset work
 
 Aliases work anywhere you pass `--account` or `GOG_ACCOUNT` (reserved: `auto`, `default`).
 
-### Command Allowlist (Sandboxing)
+### Command Allowlist/Denylist (Sandboxing)
 
 ```bash
 # Only allow calendar + tasks commands for an agent
@@ -444,6 +445,18 @@ gog --enable-commands calendar,tasks calendar events --today
 # Same via env
 export GOG_ENABLE_COMMANDS=calendar,tasks
 gog tasks list <tasklistId>
+
+# Block specific subcommands using dot-notation
+gog --disable-commands gmail.send gmail search 'from:boss'  # allowed
+gog --disable-commands gmail.send gmail send --to a@b.com   # blocked
+
+# Block all subcommands of a command
+gog --disable-commands gmail gmail search 'from:boss'       # blocked
+
+# Same via env
+export GOG_DISABLE_COMMANDS=gmail.send,calendar.delete
+gog gmail search 'from:boss'  # allowed
+gog gmail send --to a@b.com   # blocked
 ```
  
 ## Security
@@ -1235,6 +1248,7 @@ All commands support these flags:
 
 - `--account <email|alias|auto>` - Account to use (overrides GOG_ACCOUNT)
 - `--enable-commands <csv>` - Allowlist top-level commands (e.g., `calendar,tasks`)
+- `--disable-commands <csv>` - Denylist commands using dot-notation (e.g., `gmail.send`)
 - `--json` - Output JSON to stdout (best for scripting)
 - `--plain` - Output stable, parseable text to stdout (TSV; no colors)
 - `--color <mode>` - Color mode: `auto`, `always`, or `never` (default: auto)
