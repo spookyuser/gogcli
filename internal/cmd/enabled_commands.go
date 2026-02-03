@@ -40,3 +40,31 @@ func parseEnabledCommands(value string) map[string]bool {
 	}
 	return out
 }
+
+func enforceDisabledCommands(kctx *kong.Context, disabled string) error {
+	disabled = strings.TrimSpace(disabled)
+	if disabled == "" {
+		return nil
+	}
+
+	denyList := parseEnabledCommands(disabled)
+	if len(denyList) == 0 {
+		return nil
+	}
+
+	cmdParts := strings.Fields(kctx.Command())
+	if len(cmdParts) == 0 {
+		return nil
+	}
+
+	// Check if any prefix of the command path is disabled
+	// e.g., ["gmail", "send"] checks "gmail.send", then "gmail"
+	for i := len(cmdParts); i >= 1; i-- {
+		prefix := strings.ToLower(strings.Join(cmdParts[:i], "."))
+		if denyList[prefix] {
+			return usagef("command %q is disabled (blocked by --disable-commands)", strings.Join(cmdParts[:i], " "))
+		}
+	}
+
+	return nil
+}
