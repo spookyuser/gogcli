@@ -62,13 +62,9 @@ type sendMessageOptions struct {
 
 func (c *GmailSendCmd) Run(ctx context.Context, flags *RootFlags) error {
 	u := ui.FromContext(ctx)
-	account, err := requireAccount(flags)
-	if err != nil {
-		return err
-	}
 
-	replyToMessageID := strings.TrimSpace(c.ReplyToMessageID)
-	threadID := strings.TrimSpace(c.ThreadID)
+	replyToMessageID := normalizeGmailMessageID(c.ReplyToMessageID)
+	threadID := normalizeGmailThreadID(c.ThreadID)
 
 	body, err := resolveBodyInput(c.Body, c.BodyFile)
 	if err != nil {
@@ -97,37 +93,88 @@ func (c *GmailSendCmd) Run(ctx context.Context, flags *RootFlags) error {
 	if c.TrackSplit && !c.Track {
 		return usage("--track-split requires --track")
 	}
+	if c.Track && strings.TrimSpace(c.BodyHTML) == "" {
+		return fmt.Errorf("--track requires --body-html (pixel must be in HTML)")
+	}
+
+	attachPaths := make([]string, 0, len(c.Attach))
+	for _, p := range c.Attach {
+		expanded, expandErr := config.ExpandPath(p)
+		if expandErr != nil {
+			return expandErr
+		}
+		attachPaths = append(attachPaths, expanded)
+	}
+
+	if dryRunErr := dryRunExit(ctx, flags, "gmail.send", map[string]any{
+		"to":                  splitCSV(c.To),
+		"cc":                  splitCSV(c.Cc),
+		"bcc":                 splitCSV(c.Bcc),
+		"subject":             strings.TrimSpace(c.Subject),
+		"reply_to_message_id": replyToMessageID,
+		"thread_id":           threadID,
+		"reply_all":           c.ReplyAll,
+		"reply_to":            strings.TrimSpace(c.ReplyTo),
+		"from":                strings.TrimSpace(c.From),
+		"body_len":            len(strings.TrimSpace(body)),
+		"body_html_len":       len(strings.TrimSpace(c.BodyHTML)),
+		"attachments":         attachPaths,
+		"track":               c.Track,
+		"track_split":         c.TrackSplit,
+	}); dryRunErr != nil {
+		return dryRunErr
+	}
+
+	account, err := requireAccount(flags)
+	if err != nil {
+		return err
+	}
 
 	svc, err := newGmailService(ctx, account)
 	if err != nil {
 		return err
 	}
 
+	sendAsList, sendAsListErr := listSendAs(ctx, svc)
+
 	// Determine the From address
 	fromAddr := account
 	sendingEmail := account // The email we're sending from (without display name)
-	if strings.TrimSpace(c.From) != "" {
-		// Validate that this is a configured send-as alias
+	if fromEmail := strings.TrimSpace(c.From); fromEmail != "" {
+		// Validate that this is a configured and verified send-as alias.
 		var sa *gmail.SendAs
-		sa, err = svc.Users.Settings.SendAs.Get("me", c.From).Context(ctx).Do()
-		if err != nil {
-			return fmt.Errorf("invalid --from address %q: %w", c.From, err)
+		if sendAsListErr == nil {
+			sa = findSendAsByEmail(sendAsList, fromEmail)
+			if sa == nil {
+				return fmt.Errorf("invalid --from address %q: not found in send-as settings", fromEmail)
+			}
+		} else {
+			// Fallback: preserve legacy behavior if we cannot list settings.
+			var getErr error
+			sa, getErr = svc.Users.Settings.SendAs.Get("me", fromEmail).Context(ctx).Do()
+			if getErr != nil {
+				return fmt.Errorf("invalid --from address %q: %w", fromEmail, getErr)
+			}
 		}
+
 		if sa.VerificationStatus != gmailVerificationAccepted {
-			return fmt.Errorf("--from address %q is not verified (status: %s)", c.From, sa.VerificationStatus)
+			return fmt.Errorf("--from address %q is not verified (status: %s)", fromEmail, sa.VerificationStatus)
 		}
-		sendingEmail = c.From
-		fromAddr = c.From
-		// Include display name if set
-		if sa.DisplayName != "" {
-			fromAddr = sa.DisplayName + " <" + c.From + ">"
+
+		sendingEmail = fromEmail
+		fromAddr = fromEmail
+
+		if displayName := strings.TrimSpace(sa.DisplayName); displayName != "" {
+			fromAddr = displayName + " <" + fromEmail + ">"
 		}
 	} else {
-		// No --from specified: look up the primary account's send-as settings
-		// to get the display name
-		sa, saErr := svc.Users.Settings.SendAs.Get("me", account).Context(ctx).Do()
-		if saErr == nil && sa.DisplayName != "" {
-			fromAddr = sa.DisplayName + " <" + account + ">"
+		// No --from specified: best-effort look up the primary account's display name.
+		displayName := ""
+		if sendAsListErr == nil {
+			displayName = primaryDisplayNameFromSendAsList(sendAsList, account)
+		}
+		if displayName != "" {
+			fromAddr = displayName + " <" + account + ">"
 		}
 		// If lookup fails, we just use the plain email address (no error)
 	}
@@ -160,13 +207,9 @@ func (c *GmailSendCmd) Run(ctx context.Context, flags *RootFlags) error {
 
 	bccRecipients := splitCSV(c.Bcc)
 
-	atts := make([]mailAttachment, 0, len(c.Attach))
-	for _, p := range c.Attach {
-		expanded, expandErr := config.ExpandPath(p)
-		if expandErr != nil {
-			return expandErr
-		}
-		atts = append(atts, mailAttachment{Path: expanded})
+	atts := make([]mailAttachment, 0, len(attachPaths))
+	for _, p := range attachPaths {
+		atts = append(atts, mailAttachment{Path: p})
 	}
 
 	var trackingCfg *tracking.Config
@@ -215,6 +258,57 @@ func (c *GmailSendCmd) resolveTrackingConfig(account string, toRecipients, ccRec
 	}
 
 	return trackingCfg, nil
+}
+
+func listSendAs(ctx context.Context, svc *gmail.Service) ([]*gmail.SendAs, error) {
+	if svc == nil {
+		return nil, nil
+	}
+	resp, err := svc.Users.Settings.SendAs.List("me").Context(ctx).Do()
+	if err != nil {
+		return nil, err
+	}
+	return resp.SendAs, nil
+}
+
+func findSendAsByEmail(sendAs []*gmail.SendAs, email string) *gmail.SendAs {
+	needle := strings.ToLower(strings.TrimSpace(email))
+	if needle == "" {
+		return nil
+	}
+	for _, sa := range sendAs {
+		if sa == nil {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(sa.SendAsEmail)) == needle {
+			return sa
+		}
+	}
+	return nil
+}
+
+func primaryDisplayNameFromSendAsList(sendAs []*gmail.SendAs, account string) string {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return ""
+	}
+
+	if sa := findSendAsByEmail(sendAs, account); sa != nil {
+		if displayName := strings.TrimSpace(sa.DisplayName); displayName != "" {
+			return displayName
+		}
+	}
+
+	for _, sa := range sendAs {
+		if sa == nil || !sa.IsPrimary {
+			continue
+		}
+		if displayName := strings.TrimSpace(sa.DisplayName); displayName != "" {
+			return displayName
+		}
+	}
+
+	return ""
 }
 
 func buildSendBatches(toRecipients, ccRecipients, bccRecipients []string, track, trackSplit bool) []sendBatch {
@@ -324,7 +418,7 @@ func writeSendResults(ctx context.Context, u *ui.UI, fromAddr string, results []
 			if results[0].TrackingID != "" {
 				resp["tracking_id"] = results[0].TrackingID
 			}
-			return outfmt.WriteJSON(os.Stdout, resp)
+			return outfmt.WriteJSON(ctx, os.Stdout, resp)
 		}
 
 		items := make([]map[string]any, 0, len(results))
@@ -342,7 +436,7 @@ func writeSendResults(ctx context.Context, u *ui.UI, fromAddr string, results []
 			}
 			items = append(items, item)
 		}
-		return outfmt.WriteJSON(os.Stdout, map[string]any{"messages": items})
+		return outfmt.WriteJSON(ctx, os.Stdout, map[string]any{"messages": items})
 	}
 
 	if len(results) == 1 {
