@@ -141,6 +141,7 @@ func authorizeManualWithCode(
 		if err != nil {
 			return "", fmt.Errorf("parse redirect url: %w", err)
 		}
+
 		if parsed.Scheme == "" || parsed.Host == "" {
 			return "", fmt.Errorf("parse redirect url: %w", errInvalidRedirectURL)
 		}
@@ -167,6 +168,7 @@ func authorizeManualWithCode(
 		if err != nil {
 			return "", err
 		}
+
 		if st.RedirectURI != "" {
 			cfg.RedirectURL = st.RedirectURI
 		}
@@ -244,11 +246,13 @@ func authorizeManualInteractive(ctx context.Context, opts AuthorizeOptions, cfg 
 	if uriErr != nil {
 		return "", uriErr
 	}
+
 	if gotState != "" {
 		st, err := validateManualState(opts, gotState, gotRedirectURI)
 		if err != nil {
 			return "", err
 		}
+
 		if st.RedirectURI != "" {
 			cfg.RedirectURL = st.RedirectURI
 		}
@@ -309,11 +313,8 @@ func validateManualState(opts AuthorizeOptions, gotState string, gotRedirectURI 
 		if opts.RequireState {
 			return manualState{}, errManualStateMismatch
 		}
-		return manualState{}, errStateMismatch
-	}
 
-	if opts.RequireState && st.RedirectURI == "" {
-		return manualState{}, errManualStateMismatch
+		return manualState{}, errStateMismatch
 	}
 
 	return st, nil
@@ -535,9 +536,11 @@ func randomManualRedirectURI(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("listen for manual redirect port: %w", err)
 	}
+
 	defer func() { _ = ln.Close() }()
 
 	port := ln.Addr().(*net.TCPAddr).Port
+
 	return fmt.Sprintf("http://127.0.0.1:%d/oauth2/callback", port), nil
 }
 
@@ -546,6 +549,7 @@ func redirectURIFromParsedURL(u *url.URL) string {
 	if path == "" {
 		path = "/"
 	}
+
 	return fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, path)
 }
 
@@ -554,9 +558,11 @@ func redirectURIFromRedirectURL(rawURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse redirect url: %w", err)
 	}
+
 	if parsed.Scheme == "" || parsed.Host == "" {
 		return "", fmt.Errorf("parse redirect url: %w", errInvalidRedirectURL)
 	}
+
 	return redirectURIFromParsedURL(parsed), nil
 }
 
